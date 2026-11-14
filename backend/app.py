@@ -1,10 +1,4 @@
-"""API REST (Flask) do Sistema de Marcação de Consultas.
 
-Execute:  python app.py   →  http://127.0.0.1:5000
-O backend também entrega os arquivos da pasta ../frontend, então um único
-comando sobe o sistema completo. (O frontend também pode ser servido à parte:
-a API aceita requisições de outras origens — CORS.)
-"""
 import os
 from datetime import datetime
 from pathlib import Path
