@@ -1,5 +1,6 @@
 // Camada de comunicação com o backend (fetch → JSON).
 const Api = (() => {
+  const BASE_URL = "/api";
   const CHAVE_TOKEN = "clinica.token";
   const CHAVE_USUARIO = "clinica.usuario";
 
@@ -28,7 +29,7 @@ const Api = (() => {
     if (corpo) cabecalhos["Content-Type"] = "application/json";
     if (token()) cabecalhos["Authorization"] = `Bearer ${token()}`;
     try {
-      resposta = await fetch(API_BASE + caminho, {
+      resposta = await fetch(BASE_URL + caminho, {
         method: metodo,
         headers: cabecalhos,
         body: corpo ? JSON.stringify(corpo) : undefined,
