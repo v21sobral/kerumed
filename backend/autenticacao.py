@@ -41,7 +41,7 @@ def _usuario_dict(linha) -> dict:
             "perfil": linha["perfil"], "perfil_rotulo": PERFIS.get(linha["perfil"], linha["perfil"])}
 
 
-def garantir_admin(conexao: sqlite3.Connection, metodo_hash: str = "scrypt") -> None:
+def garantir_admin(conexao, metodo_hash: str = "scrypt") -> None:
     """Cria o administrador inicial se ainda não existir nenhum usuário.
 
     Usuário e senha vêm de ADMIN_USER / ADMIN_PASSWORD (padrão: admin / admin123).
@@ -161,11 +161,45 @@ def criar_usuario(conexao, nome, usuario, senha, perfil, metodo_hash="scrypt") -
             "INSERT INTO usuarios (nome, usuario, senha_hash, perfil) VALUES (?, ?, ?, ?)",
             (nome, usuario, generate_password_hash(senha, method=metodo_hash), perfil))
         conexao.commit()
-    except sqlite3.IntegrityError:
-        raise ConflitoErro("Já existe um usuário com este nome de acesso.")
+    except Exception as exc:
+        if "UNIQUE constraint failed" in str(exc) or isinstance(exc, sqlite3.IntegrityError):
+            raise ConflitoErro("Já existe um usuário com este nome de acesso.")
+        raise
     return _usuario_dict(conexao.execute(
         "SELECT id, nome, usuario, perfil FROM usuarios WHERE id = ?", (cur.lastrowid,)).fetchone())
 
 
 def obter_usuario(conexao, usuario_id: int) -> dict:
-    linha = conexao
+    linha = conexao.execute(
+        "SELECT id, nome, usuario, perfil FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    if not linha:
+        raise NaoEncontradoErro("Usuário não encontrado.")
+    return _usuario_dict(linha)
+
+
+def remover_usuario(conexao, usuario_id: int, id_logado: int) -> None:
+    linha = conexao.execute("SELECT id, perfil FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    if not linha:
+        raise NaoEncontradoErro("Usuário não encontrado.")
+    if usuario_id == id_logado:
+        raise ValidacaoErro("Você não pode remover o seu próprio usuário.")
+    if linha["perfil"] == "admin" and conexao.execute(
+            "SELECT COUNT(*) FROM usuarios WHERE perfil = 'admin'").fetchone()[0] <= 1:
+        raise ValidacaoErro("Não é possível remover o último administrador do sistema.")
+    conexao.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+    conexao.commit()
+
+
+def alterar_senha(conexao, usuario_id: int, senha_atual: str, nova_senha: str,
+                  metodo_hash="scrypt") -> None:
+    linha = conexao.execute("SELECT senha_hash FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    if not linha:
+        raise NaoEncontradoErro("Usuário não encontrado.")
+    if not senha_atual or not check_password_hash(linha["senha_hash"], senha_atual):
+        raise ValidacaoErro("A senha atual está incorreta.")
+    _validar_senha(nova_senha, "A nova senha")
+    if nova_senha == senha_atual:
+        raise ValidacaoErro("A nova senha deve ser diferente da atual.")
+    conexao.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?",
+                    (generate_password_hash(nova_senha, method=metodo_hash), usuario_id))
+    conexao.commit()
