@@ -3,6 +3,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Garante que a pasta 'backend/' esteja no caminho de importação do Python
+PASTA_ATUAL = Path(__file__).resolve().parent
+if str(PASTA_ATUAL) not in sys.path:
+    sys.path.insert(0, str(PASTA_ATUAL))
+
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
