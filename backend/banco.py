@@ -1,4 +1,5 @@
-"""Camada de acesso ao banco de dados (SQLite)."""
+"""Camada de acesso ao banco de dados (SQLite local e Turso/libSQL na nuvem)."""
+import os
 import sqlite3
 from pathlib import Path
 
@@ -71,12 +72,78 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_paciente_horario
 """
 
 
-def _migrar_profissionais(conexao: sqlite3.Connection) -> None:
-    """Garante as colunas-chave e o índice único (nome + especialidade) dos profissionais.
+# ----------------------------------------------------------------------
+# Adaptador para que o Turso (libsql) se comporte exatamente como sqlite3.Row
+# ----------------------------------------------------------------------
+class _LinhaDict(dict):
+    """Permite acessar colunas tanto por nome (linha['id']) quanto por índice (linha[0])."""
+    def __init__(self, colunas, valores):
+        super().__init__(zip(colunas, valores))
+        self._valores = tuple(valores)
 
-    Funciona também em bancos criados antes desta regra. Se já houver duplicados antigos,
-    o índice não é criado, mas o serviço continua impedindo novos duplicados.
-    """
+    def __getitem__(self, chave):
+        if isinstance(chave, int):
+            return self._valores[chave]
+        return super().__getitem__(chave)
+
+
+class _CursorTurso:
+    def __init__(self, cursor):
+        self._cur = cursor
+        self._linhas = None
+
+    @property
+    def lastrowid(self):
+        return self._cur.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def _converter(self, tupla):
+        if tupla is None:
+            return None
+        colunas = [col[0] for col in (self._cur.description or [])]
+        return _LinhaDict(colunas, tupla)
+
+    def fetchone(self):
+        return self._converter(self._cur.fetchone())
+
+    def fetchall(self):
+        return [self._converter(r) for r in self._cur.fetchall()]
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _ConexaoTurso:
+    """Envolve a conexão libsql-experimental garantindo compatibilidade total com sqlite3."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params=()):
+        cur = self._conn.cursor()
+        cur.execute(sql, tuple(params))
+        return _CursorTurso(cur)
+
+    def executescript(self, script: str):
+        for comando in script.split(";"):
+            # Remove comentários de linha e espaços
+            linhas = [l for l in comando.splitlines() if not l.strip().startswith("--")]
+            stmt = "\n".join(linhas).strip()
+            if stmt:
+                self._conn.execute(stmt)
+        self._conn.commit()
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
+def _migrar_profissionais(conexao) -> None:
+    """Garante as colunas-chave e o índice único (nome + especialidade) dos profissionais."""
     colunas = {l["name"] for l in conexao.execute("PRAGMA table_info(profissionais)")}
     for coluna in ("nome_chave", "especialidade_chave"):
         if coluna not in colunas:
@@ -90,13 +157,55 @@ def _migrar_profissionais(conexao: sqlite3.Connection) -> None:
     try:
         conexao.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_profissional_nome_especialidade "
                         "ON profissionais (nome_chave, especialidade_chave)")
-    except sqlite3.IntegrityError:
+    except Exception:
         pass
     conexao.commit()
 
 
-def conectar(caminho=CAMINHO_PADRAO) -> sqlite3.Connection:
-    """Abre (e cria, se necessário) o banco de dados. Use ':memory:' nos testes."""
+def _dividir_esquema(esquema: str) -> list[str]:
+    """Separa comandos SQL respeitando blocos BEGIN ... END de triggers."""
+    comandos = []
+    atual = []
+    dentro_trigger = False
+    for linha in esquema.splitlines():
+        limpa = linha.strip()
+        if not limpa or limpa.startswith("--"):
+            continue
+        atual.append(linha)
+        maiuscula = limpa.upper()
+        if maiuscula.startswith("CREATE TRIGGER"):
+            dentro_trigger = True
+        if dentro_trigger and maiuscula.endswith("END;"):
+            comandos.append("\n".join(atual))
+            atual = []
+            dentro_trigger = False
+        elif not dentro_trigger and maiuscula.endswith(";"):
+            comandos.append("\n".join(atual))
+            atual = []
+    return comandos
+
+
+def conectar(caminho=CAMINHO_PADRAO):
+    """Abre (e cria, se necessário) o banco de dados.
+
+    Usa Turso na nuvem se TURSO_DATABASE_URL estiver definida e o caminho não for ':memory:'.
+    """
+    turso_url = os.environ.get("TURSO_DATABASE_URL", "").strip()
+    turso_token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+
+    if turso_url and str(caminho) != ":memory:":
+        import libsql_experimental as libsql
+        # Converte wss:// para libsql:// se necessário
+        url_formatada = turso_url.replace("wss://", "libsql://").replace("https://", "libsql://")
+        conn_bruta = libsql.connect(database=url_formatada, auth_token=turso_token)
+        conexao = _ConexaoTurso(conn_bruta)
+        conexao.execute("PRAGMA foreign_keys = ON")
+        for stmt in _dividir_esquema(ESQUEMA):
+            conexao.execute(stmt)
+        conexao.commit()
+        _migrar_profissionais(conexao)
+        return conexao
+
     conexao = sqlite3.connect(str(caminho))
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
