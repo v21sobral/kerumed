@@ -4,25 +4,24 @@ const Api = (() => {
   const CHAVE_TOKEN = "clinica.token";
   const CHAVE_USUARIO = "clinica.usuario";
 
-  // ---- sessão (token devolvido pelo /login e enviado em todas as requisições) ----
-  const token = () => localStorage.getItem(CHAVE_TOKEN);
+ // ---- sessão (dura apenas enquanto a aba estiver aberta) ----
+  const token = () => sessionStorage.getItem(CHAVE_TOKEN);
   function salvarSessao(novoToken, usuario) {
-    localStorage.setItem(CHAVE_TOKEN, novoToken);
-    localStorage.setItem(CHAVE_USUARIO, JSON.stringify(usuario));
+    sessionStorage.setItem(CHAVE_TOKEN, novoToken);
+    sessionStorage.setItem(CHAVE_USUARIO, JSON.stringify(usuario));
   }
   function limparSessao() {
-    localStorage.removeItem(CHAVE_TOKEN);
-    localStorage.removeItem(CHAVE_USUARIO);
+    sessionStorage.removeItem(CHAVE_TOKEN);
+    sessionStorage.removeItem(CHAVE_USUARIO);
   }
   function usuario() {
     try {
-      const u = JSON.parse(localStorage.getItem(CHAVE_USUARIO) || "null");
+      const u = JSON.parse(sessionStorage.getItem(CHAVE_USUARIO) || "null");
       return token() && u && u.usuario ? u : null;
     } catch (_) {
       return null;
     }
   }
-
   async function requisicao(metodo, caminho, corpo) {
     let resposta;
     const cabecalhos = {};
