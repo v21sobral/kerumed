@@ -1,2 +1,11 @@
+[project]
+name = "kerumed"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "flask",
+    "werkzeug",
+]
+
 [tool.vercel]
 entrypoint = "backend.app:app"
