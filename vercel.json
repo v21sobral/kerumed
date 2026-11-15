@@ -4,11 +4,5 @@
     "backend/app.py": {
       "includeFiles": "frontend/**"
     }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/backend/app.py"
-    }
-  ]
+  }
 }
