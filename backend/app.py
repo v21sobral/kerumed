@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime
 from pathlib import Path
@@ -16,8 +15,15 @@ from validacoes import (AcessoNegadoErro, ConflitoErro, LimiteExcedidoErro, NaoA
 
 PASTA_FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
+# Na Vercel o sistema de arquivos é somente leitura; usa /tmp automaticamente se não houver caminho customizado
+CAMINHO_BANCO_INICIAL = (
+    Path("/tmp") / Path(banco.CAMINHO_PADRAO).name
+    if os.environ.get("VERCEL")
+    else banco.CAMINHO_PADRAO
+)
 
-def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=None,
+
+def create_app(caminho_banco=CAMINHO_BANCO_INICIAL, agora=None, chave_secreta=None,
                metodo_hash="scrypt") -> Flask:
     """Fábrica da aplicação.
 
@@ -311,7 +317,8 @@ def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=Non
         c = servico().obter_consulta(novo_id)
         auditar("criar", "consulta", novo_id,
                 f"Agendou a consulta {novo_id}: {c['paciente']} com {c['profissional']} "
-                f"em {c['data']} às {c['horario']}", depois=c, campos=("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
+                f"em {c['data']} às {c['horario']}", depois=c,
+                campos=("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
         return jsonify(mensagem=f"Consulta agendada com sucesso! Código: {novo_id}", consulta=c), 201
 
     @app.put("/api/consultas/<int:consulta_id>")
@@ -324,7 +331,8 @@ def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=Non
             texto(d, "situacao") or "Agendada")
         depois = servico().obter_consulta(consulta_id)
         auditar("alterar", "consulta", consulta_id,
-                f"Alterou a consulta {consulta_id} de {depois['paciente']}", antes, depois, ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
+                f"Alterou a consulta {consulta_id} de {depois['paciente']}", antes, depois,
+                ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
         return jsonify(mensagem="Consulta alterada com sucesso!", consulta=depois)
 
     @app.post("/api/consultas/<int:consulta_id>/cancelar")
@@ -334,7 +342,8 @@ def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=Non
         depois = servico().obter_consulta(consulta_id)
         auditar("cancelar", "consulta", consulta_id,
                 f"Cancelou a consulta {consulta_id} de {depois['paciente']} "
-                f"({depois['data']} às {depois['horario']})", antes, depois, ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
+                f"({depois['data']} às {depois['horario']})", antes, depois,
+                ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
         return jsonify(mensagem="Consulta cancelada com sucesso!", consulta=depois)
 
     @app.patch("/api/consultas/<int:consulta_id>/situacao")
@@ -345,7 +354,8 @@ def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=Non
         depois = servico().obter_consulta(consulta_id)
         auditar("situacao", "consulta", consulta_id,
                 f"Alterou a situação da consulta {consulta_id} de {depois['paciente']} "
-                f"para {depois['situacao']}", antes, depois, ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
+                f"para {depois['situacao']}", antes, depois,
+                ("paciente", "profissional", "especialidade", "data", "horario", "situacao", "observacao"))
         return jsonify(mensagem="Situação da consulta atualizada com sucesso!", consulta=depois)
 
     @app.get("/api/horarios-livres")
@@ -369,7 +379,11 @@ def create_app(caminho_banco=banco.CAMINHO_PADRAO, agora=None, chave_secreta=Non
     return app
 
 
+# Instância exposta no nível superior exigida pela Vercel
+app = create_app()
+
+
 if __name__ == "__main__":
     porta = int(os.environ.get("PORT", 5000))
     # debug só quando FLASK_DEBUG=1 (o modo debug expõe um console de execução de código)
-    create_app().run(host="127.0.0.1", port=porta, debug=os.environ.get("FLASK_DEBUG") == "1")
+    app.run(host="127.0.0.1", port=porta, debug=os.environ.get("FLASK_DEBUG") == "1")
