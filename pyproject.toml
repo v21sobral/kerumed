@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "flask",
     "werkzeug",
+    "libsql-experimental",
 ]
 
 [tool.vercel]
