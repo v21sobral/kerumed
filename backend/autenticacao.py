@@ -1,5 +1,6 @@
 """Autenticação: usuários, senhas com hash, tokens assinados e limite de tentativas."""
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -7,8 +8,6 @@ from pathlib import Path
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
-
-import re
 
 from validacoes import (ConflitoErro, LimiteExcedidoErro, NaoAutorizadoErro,
                         NaoEncontradoErro, ValidacaoErro)
@@ -60,9 +59,13 @@ def garantir_admin(conexao: sqlite3.Connection, metodo_hash: str = "scrypt") -> 
 
 
 def carregar_chave_secreta(caminho_banco) -> str:
-    """Chave que assina os tokens: variável de ambiente ou arquivo local gerado uma vez."""
-    if os.environ.get("CLINICA_SECRET_KEY"):
-        return os.environ["CLINICA_SECRET_KEY"]
+    """Chave que assina os tokens: variável de ambiente, fallback fixo na Vercel ou arquivo local."""
+    chave_env = os.environ.get("CLINICA_SECRET_KEY") or os.environ.get("SECRET_KEY")
+    if chave_env:
+        return chave_env.strip()
+    if os.environ.get("VERCEL"):
+        # Garante que todas as instâncias serverless usem a mesma chave mesmo sem env var configurada
+        return "kerumed-vercel-chave-padrao-2026-altere-em-producao"
     arquivo = Path(str(caminho_banco)).with_name(".secret_key")
     if arquivo.exists():
         return arquivo.read_text().strip()
@@ -119,7 +122,7 @@ class Autenticador:
         linha = conexao.execute(
             "SELECT id, nome, usuario, perfil FROM usuarios WHERE id = ?", (dados.get("id"),)
         ).fetchone()
-        if not linha:                       # usuário removido depois do login
+        if not linha:                        # usuário removido depois do login
             raise NaoAutorizadoErro("Sessão expirada ou inválida. Faça login novamente.")
         return _usuario_dict(linha)
 
@@ -165,36 +168,4 @@ def criar_usuario(conexao, nome, usuario, senha, perfil, metodo_hash="scrypt") -
 
 
 def obter_usuario(conexao, usuario_id: int) -> dict:
-    linha = conexao.execute(
-        "SELECT id, nome, usuario, perfil FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
-    if not linha:
-        raise NaoEncontradoErro("Usuário não encontrado.")
-    return _usuario_dict(linha)
-
-
-def remover_usuario(conexao, usuario_id: int, id_logado: int) -> None:
-    linha = conexao.execute("SELECT id, perfil FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
-    if not linha:
-        raise NaoEncontradoErro("Usuário não encontrado.")
-    if usuario_id == id_logado:
-        raise ValidacaoErro("Você não pode remover o seu próprio usuário.")
-    if linha["perfil"] == "admin" and conexao.execute(
-            "SELECT COUNT(*) FROM usuarios WHERE perfil = 'admin'").fetchone()[0] <= 1:
-        raise ValidacaoErro("Não é possível remover o último administrador do sistema.")
-    conexao.execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
-    conexao.commit()
-
-
-def alterar_senha(conexao, usuario_id: int, senha_atual: str, nova_senha: str,
-                  metodo_hash="scrypt") -> None:
-    linha = conexao.execute("SELECT senha_hash FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
-    if not linha:
-        raise NaoEncontradoErro("Usuário não encontrado.")
-    if not senha_atual or not check_password_hash(linha["senha_hash"], senha_atual):
-        raise ValidacaoErro("A senha atual está incorreta.")
-    _validar_senha(nova_senha, "A nova senha")
-    if nova_senha == senha_atual:
-        raise ValidacaoErro("A nova senha deve ser diferente da atual.")
-    conexao.execute("UPDATE usuarios SET senha_hash = ? WHERE id = ?",
-                    (generate_password_hash(nova_senha, method=metodo_hash), usuario_id))
-    conexao.commit()
+    linha = conexao
