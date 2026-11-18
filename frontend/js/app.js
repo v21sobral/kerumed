@@ -22,8 +22,14 @@ function aplicarTema(tema) {
   const resolved = tema === "dark" ? "dark" : "light";
   document.body.setAttribute("data-theme", resolved);
   localStorage.setItem("clinica.theme", resolved);
-  const toggle = document.getElementById("theme-toggle");
-  if (toggle) toggle.textContent = resolved === "dark" ? "☀️" : "🌙";
+  const botaoPainel = document.getElementById("theme-toggle");
+  if (botaoPainel) botaoPainel.textContent = resolved === "dark" ? "☀️" : "🌙";
+  const botaoLogin = document.getElementById("login-theme-toggle");
+  if (botaoLogin) {
+    const proximoTema = resolved === "dark" ? "claro" : "escuro";
+    botaoLogin.textContent = `${resolved === "dark" ? "☀️" : "🌙"} Modo ${proximoTema}`;
+    botaoLogin.setAttribute("aria-label", `Mudar para modo ${proximoTema}`);
+  }
 }
 
 // Mostra/esconde o que o perfil logado pode usar (o backend também confere cada requisição).
@@ -83,9 +89,11 @@ window.__inicializarSistema = inicializarSistema;
 
 document.addEventListener("DOMContentLoaded", async () => {
   aplicarTema(localStorage.getItem("clinica.theme") || "dark");
-  document.getElementById("theme-toggle")?.addEventListener("click", () => {
-    aplicarTema(document.body.getAttribute("data-theme") === "dark" ? "light" : "dark");
-  });
+  for (const toggle of document.querySelectorAll("[data-theme-toggle]")) {
+    toggle.addEventListener("click", () => {
+      aplicarTema(document.body.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+  }
 
   // O dashboard acompanha qualquer cadastro/alteração/remoção feita nas telas.
   document.addEventListener("dados-alterados", () => Dashboard.atualizar());
